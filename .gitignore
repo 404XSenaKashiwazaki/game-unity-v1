@@ -1,0 +1,41 @@
+# ===============================
+# UNITY GENERATED (JANGAN COMMIT)
+# ===============================
+[Ll]ibrary/
+[Tt]emp/
+[Ll]ogs/
+UserSettings/
+
+# Build hasil export
+[Bb]uild/
+[Bb]uilds/
+
+# ===============================
+# IDE / EDITOR
+# ===============================
+.vscode/
+.idea/
+.vs/
+
+# Visual Studio / Rider
+*.csproj
+*.sln
+*.slnx
+*.user
+*.userprefs
+
+# ===============================
+# UNITY CACHE & MISC
+# ===============================
+*.pidb
+*.booproj
+*.svd
+*.pdb
+*.mdb
+*.opendb
+
+# ===============================
+# OS
+# ===============================
+.DS_Store
+Thumbs.db
