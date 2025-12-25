@@ -1,6 +1,6 @@
 using UnityEngine;
 using UnityEngine.UI;
-
+using TMPro;
 public class Options : MonoBehaviour
 {
     public GameObject GameObjectPanel;
@@ -10,11 +10,13 @@ public class Options : MonoBehaviour
     [Header("Audio UI")]
     public Slider musicSlider;
     public Slider sfxSlider;
+         public TextMeshProUGUI infoText;
+         public Slider enemySlider;
 
    void OnEnable()
     {
         Debug.Log("OPTIONS PANEL ENABLED");
-
+enemySlider.SetValueWithoutNotify(PlayerPrefs.GetFloat("ENEMY", 2f));
         if (AudioManager.Instance != null)
         {
             musicSlider.SetValueWithoutNotify(
@@ -27,6 +29,14 @@ public class Options : MonoBehaviour
         }
     }
 
+ public void Apply()
+    {
+
+        MissionManager.totalTargets = Mathf.RoundToInt(enemySlider.value);
+        PlayerPrefs.SetFloat("ENEMY", enemySlider.value);
+        if(infoText != null) infoText.text = $"{Mathf.RoundToInt(enemySlider.value)}";
+        PlayerPrefs.Save();
+    }
 
 
     public void GameMainMenu()

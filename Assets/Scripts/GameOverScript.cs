@@ -5,45 +5,65 @@ using TMPro;
 public class GameOverScript : MonoBehaviour
 {
     public GameObject GameObjectPanel;
-     public DroneController drone;
-    public TextMeshProUGUI fpvUsed,neutralized;
-    
-    int usedDrone;
-    int totalDrone;
-    int neutralizedTarget;
-    int totalTarget;
+    public GameObject GameObjectNoImagePanel;
+    public TextMeshProUGUI fpvUsed, neutralized;
+    public GameObject GameObjectInfoPanel;
 
+    bool shown = false;
 
- 
-
-    public void GameOver()
+    void Update()
     {
+        if (MissionManager.isMissionComplete) return;
+
+        if (MissionManager.isGameOver && !shown)
+        {
+            ShowGameOver();
+        }
+    }
+
+   public void ShowGameOver()
+    {
+
+        shown = true;
+
         Time.timeScale = 0f;
 
-        usedDrone = DroneController.usedDrones;
-        totalDrone = DroneController.totalDrones;
+        int usedDrone = MissionManager.totalUsedDrones;
+        int totalDrone = MissionManager.totalDrones;
 
-        neutralizedTarget = DroneController.destroyedTargets;
-        totalTarget = DroneController.totalTargets;
+        int neutralizedTarget = MissionManager.totalDestroyedTargets;
+        int totalTarget = MissionManager.totalTargets; // ini boleh tetap dari DroneController
 
-        fpvUsed.text = $"FPV used: {usedDrone} / {totalDrone}";
-        neutralized.text = $"neutralized: {neutralizedTarget} / {totalTarget}";
+        if (fpvUsed != null)
+            fpvUsed.text = $"FPV used: {usedDrone} / {totalDrone}";
+
+        if (neutralized != null)
+            neutralized.text = $"neutralized: {neutralizedTarget} / {totalTarget}";
 
         if (GameObjectPanel != null)
             GameObjectPanel.SetActive(true);
+
+        if (GameObjectInfoPanel != null)
+            GameObjectInfoPanel.SetActive(false);
+            Debug.Log(GameObjectNoImagePanel);
+        if (GameObjectNoImagePanel != null)
+            GameObjectNoImagePanel.SetActive(false);
+         
     }
 
+    // ================= BUTTON =================
 
     public void GameRestart()
     {
         Time.timeScale = 1f;
-        GameManager.ResetForRestart();
+        MissionManager.ResetMissionState();
         SceneManager.LoadScene(SceneManager.GetActiveScene().buildIndex);
     }
 
     public void MainMenu()
     {
         Time.timeScale = 1f;
+        MissionManager.ResetMissionState();
         SceneManager.LoadScene("MainMenu");
     }
 
@@ -51,6 +71,4 @@ public class GameOverScript : MonoBehaviour
     {
         Application.Quit();
     }
-
-
 }

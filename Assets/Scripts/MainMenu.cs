@@ -11,7 +11,7 @@ public class MainMenu : MonoBehaviour
 
     public void GamePlay()
     {
-        MissionManager.Reset();
+        MissionManager.ResetMissionState();
         Time.timeScale = 1f;
         SceneManager.LoadScene("BriefingScene");
     }

@@ -4,7 +4,7 @@ public class LimitScript : MonoBehaviour
 {
     public GameOverScript gameOverScript;
     public GameObject GameObjectGameOverPanel;
-    public DroneController drone;
+ 
     // Start is called once before the first execution of Update after the MonoBehaviour is created
 
     // Update is called once per frame
@@ -31,11 +31,10 @@ public class LimitScript : MonoBehaviour
     private void OnCollisionEnter(Collision other)
 {
     
-    if (!drone.isGameOver)
+    if (!MissionManager.isGameOver)
     {
-        drone.isGameOver = true;
-        gameOverScript.GameOver();
-         if(GameObjectGameOverPanel != null)  GameObjectGameOverPanel.SetActive(true);
+        MissionManager.isGameOver = true;
+        gameOverScript.ShowGameOver();
         Debug.Log("IT'S ZOVER");
     }
 }

@@ -6,12 +6,14 @@ public class GameVictoryScript : MonoBehaviour
 {
     public GameObject GameObjectPanel;
     public GameObject GameObjectNoImagePanel;
+    public GameObject GameObjectInfoPanel;
     public TextMeshProUGUI fpvUsed, neutralized;
 
     void Start()
     {
         if (GameObjectPanel != null)
             GameObjectPanel.SetActive(false);
+        
     }
 
     public void ShowVictory()
@@ -19,10 +21,10 @@ public class GameVictoryScript : MonoBehaviour
         Time.timeScale = 0f;
 
         int usedDrone = MissionManager.totalUsedDrones;
-        int totalDrone = DroneController.totalDrones;
+        int totalDrone = MissionManager.totalDrones;
 
         int neutralizedTarget = MissionManager.totalDestroyedTargets;
-        int totalTarget = DroneController.totalTargets;
+        int totalTarget = MissionManager.totalTargets;
 
         fpvUsed.text = $"FPV used: {usedDrone} / {totalDrone}";
         neutralized.text = $"neutralized: {neutralizedTarget} / {totalTarget}";
@@ -32,6 +34,8 @@ public class GameVictoryScript : MonoBehaviour
 
         if (GameObjectNoImagePanel != null)
             GameObjectNoImagePanel.SetActive(false);
+        if (GameObjectInfoPanel != null)
+            GameObjectInfoPanel.SetActive(false);
     }
 
 
@@ -59,14 +63,14 @@ public class GameVictoryScript : MonoBehaviour
     public void GameTry()
     {
         Time.timeScale = 1f;
-        MissionManager.Reset();
+        MissionManager.ResetMissionState();
         SceneManager.LoadScene("BriefingScene");
     }
 
     public void MainMenu()
     {
         Time.timeScale = 1f;
-        MissionManager.Reset();
+        MissionManager.ResetMissionState();
         SceneManager.LoadScene("MainMenu");
     }
 
@@ -151,7 +155,7 @@ public class GameVictoryScript : MonoBehaviour
 //     public void GameTry()
 //     {
 //         Time.timeScale = 1f;
-//         GameManager.ResetForRestart();
+//         GameManager.ResetMissionStateForRestart();
 //         SceneManager.LoadScene(SceneManager.GetActiveScene().buildIndex);
 //     }
 

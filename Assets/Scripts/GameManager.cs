@@ -14,15 +14,15 @@ public class GameManager : MonoBehaviour
 
         initialized = true;
 
-        DroneController.usedDrones = 0;
-        DroneController.destroyedTargets = 0;
+       MissionManager.totalUsedDrones = 0;
+        MissionManager.totalDestroyedTargets = 0;
         DroneController.lastDroneExploded = false;
     }
 
      public static void ResetForRestart()
     {
-         DroneController.destroyedTargets = 0;
-         DroneController.usedDrones = 0;
+          MissionManager.totalUsedDrones = 0;
+        MissionManager.totalDestroyedTargets = 0;
         DroneController.lastDroneExploded = false;
     }
 }

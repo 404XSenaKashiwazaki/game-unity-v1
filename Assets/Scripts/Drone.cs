@@ -1,4 +1,4 @@
-using UnityEngine;
+ using UnityEngine;
 using TMPro;
 using System.Collections;
 using System.Collections.Generic;
@@ -45,7 +45,7 @@ public class DroneController : MonoBehaviour
     bool isEngineOn = false;
 
     [Header("OSD DISPLAY")]
-    public TextMeshProUGUI fpsText, leftTopText, leftText, topText, infoText;
+    public TextMeshProUGUI fpsText, leftTopText, leftText, topText, infoText,killText, usedDroneText;
 
     public float maxCurrent = 80f;
     public float batteryCapacity = 6000;
@@ -77,12 +77,9 @@ public class DroneController : MonoBehaviour
     public static Vector3 lastImpactPosition;
     public static Quaternion lastImpactRotation;
     public static bool lastDroneExploded = false;
+    public GameOverScript gameOverScript;
 
-    public static int totalTargets = 3;//9
-     public static int destroyedTargets = 0;
 
-     public static int totalDrones = 5;//10
-     public static int usedDrones = 0;
     public static bool isReplaying = false;
 
      //
@@ -94,13 +91,14 @@ public class DroneController : MonoBehaviour
     }
 
     List<ReplayFrame> replayBuffer = new List<ReplayFrame>();
-     [Header("Replay")]
-     public float replayFrameDelay = 0.05f;
+    [Header("Replay")]
+    public float replayFrameDelay = 0.05f;
     public float replayDuration = 3f;
+    [Header("Partikel")]
+    private ParticleSystem explosionPS;
 
 
-
-   void Start()
+    void Start()
     {
         rb = GetComponent<Rigidbody>();
         cachedRBs = FindObjectsByType<Rigidbody>(FindObjectsSortMode.None);
@@ -115,14 +113,15 @@ public class DroneController : MonoBehaviour
 
         rb.angularDamping = 0.4f;
         rb.linearDamping = 0.4f;
-
-        ShowNoImageTrue();        // "Press Enter"
+        
+        // ShowNoImageTrue();        // "Press Enter"
     }
 
 
     void Update()
     {
-     
+
+        if (isReplaying) return;
         timer += Time.deltaTime;
         timerBattery += Time.deltaTime;
 
@@ -137,7 +136,8 @@ public class DroneController : MonoBehaviour
             battery--;
             timerBattery = 0f;
         }
-        if(battery == 0 || usedDrones == totalDrones) { if (respawn != null) { setRespawn();} }
+        if(battery == 0 && MissionManager.totalUsedDrones <= MissionManager.totalDrones) { if (respawn != null) { setRespawn();} }
+       
         if (Input.GetKeyDown(KeyCode.Escape)) 
             if (GameObjectPausedPanel != null) GameObjectPausedPanel.SetActive(true);
 
@@ -277,6 +277,22 @@ public class DroneController : MonoBehaviour
 
         if (fpsText != null && isEngineOn)
             fpsText.text = $"FPS: {fpsRandom}";
+            // activeSelf
+        if(canvasNoImage != null && canvasNoImage.activeSelf)
+        {
+            leftText.text = $"No-Link\nRX-\nTX-\nFW -  1.3";
+        }
+        else
+        {
+            leftText.text = $"Link - ok\nRX: -8.0\nTX: -0.07\nFW -  1.3";
+        }
+        int usedDrone = MissionManager.totalUsedDrones;
+        int totalDrone = MissionManager.totalDrones;
+
+        int neutralizedTarget = MissionManager.totalDestroyedTargets;
+        int totalTarget =  MissionManager.totalTargets; 
+        if (killText != null) killText.text = $"neutralized: {neutralizedTarget}/{totalTarget}";
+        if (usedDroneText != null) usedDroneText.text = $"FPV used: {usedDrone}/{totalDrone}";
     }
 
     float NormalizeAngle(float angle)
@@ -293,19 +309,47 @@ public class DroneController : MonoBehaviour
 
     private void OnCollisionEnter(Collision other)
     {
-        if (isCrashed) return;
-        if (other.gameObject.CompareTag("Respawn") || other.gameObject.CompareTag("MapBoundaries")) return;
+       if (isReplaying) return;
+    if (isCrashed) return;
+    if (other.gameObject.CompareTag("Respawn") || other.gameObject.CompareTag("MapBoundaries")) return;
 
-         usedDrones += 1;
-         if(other.gameObject.CompareTag("Enemy")) destroyedTargets += 1;
-        //setRespawn();
-      
-        HandleKamikazeImpact(other);
-       
+    MissionManager.SetUsedDrone();
+
+    if (other.gameObject.CompareTag("Enemy"))
+        MissionManager.SetDestroyedTarget();
+
+
+  
+    StartCoroutine(CrashDelayThenKamikaze(other));
     }
+
+    IEnumerator CrashDelayThenKamikaze(Collision other)
+{
+    if (isCrashed) yield break;
+
+    isCrashed = true;
+    isEngineOn = false;
+
+    // ✅ HENTIKAN VELOCITY SAAT MASIH NON-KINEMATIC
+    rb.linearVelocity = Vector3.zero;
+    rb.angularVelocity = Vector3.zero;
+
+    // baru jadikan kinematic
+    rb.isKinematic = true;
+
+    ShowNoImageTrue();
+
+    yield return new WaitForSeconds(2f);
+    MissionManager.CheckMissionState(other);
+
+    HandleKamikazeImpact(other);
+}
+
+
 
     public void setRespawn()
     {
+         
         usedmAh = 0f;
         altitude = 0f;
         isCrashed = true;
@@ -319,19 +363,23 @@ public class DroneController : MonoBehaviour
     }
 
 
-    private IEnumerator RespawnCoroutine()
-    {
-        if (isLastDrone) yield break;
-        yield return new WaitForSeconds(respawnDelay);
+   private IEnumerator RespawnCoroutine()
+{
+    // ⛔ JANGAN CEK GAME OVER DI SINI
+    // ⛔ JANGAN PAKAI isLastDrone DI SINI
 
-        if (respawn != null) onRespawn();
+    yield return new WaitForSeconds(respawnDelay);
 
-        rb.isKinematic = true;   
-        isCrashed = false;
-        isEngineOn = false;
+    if (respawn != null)
+        onRespawn();
 
-        ShowNoImageTrue();       // "Press Enter"
-    }
+    rb.isKinematic = true;
+    isCrashed = false;
+    isEngineOn = false;
+
+    ShowNoImageTrue(); // "Press Enter"
+}
+
 
 
    private void onRespawn()
@@ -354,73 +402,122 @@ public class DroneController : MonoBehaviour
 
     
     }
-    private void ShowNoImageTrue() => canvasNoImage.SetActive(true);
+    private void ShowNoImageTrue() {
+        canvasNoImage.SetActive(true);
+
+    }
     private void ShowNoImageFalse() => canvasNoImage.SetActive(false);
+
     void HandleKamikazeImpact(Collision other)
     {
-        if (isCrashed) return;
-        isCrashed = true;
-        isEngineOn = false;
+        // ledakan selalu tampil
+        PlayExplosion();
 
-        // Simpan data impact 
-        lastImpactPosition = transform.position;
-        lastImpactRotation = transform.rotation;
-        lastDroneExploded = true;
-
-        // Ledakan 
-        if (explosionPrefab != null)
-            Instantiate(explosionPrefab, transform.position, Quaternion.identity);
-
-        if (!rb.isKinematic)
+        // 🏆 MENANG → STOP
+        if (MissionManager.isMissionComplete)
         {
-            rb.linearVelocity = Vector3.zero;
-            rb.angularVelocity = Vector3.zero;
-        }
-
-        rb.isKinematic = true;
-
-
-   
-        if (other.gameObject.CompareTag("Enemy"))
-        {
-            other.gameObject.SendMessage("OnTargetDestroyed", SendMessageOptions.DontRequireReceiver);
-        }
-
-    
-        if (isLastDrone)
-        {
-            gameObject.SetActive(false);
+            Debug.Log("STOP: MISSION COMPLETE");
             return;
         }
-        ShowNoImageTrue();
-        StartCoroutine(PlayReplayThenRespawn());
-    }
 
-   IEnumerator PlayReplayThenRespawn()
-    {
-        yield return new WaitForSecondsRealtime(0.6f);
-
-        isReplaying = true;
-
-        rb.isKinematic = true;
-        rb.detectCollisions = false;
-        rb.useGravity = false;
-
-        foreach (var frame in replayBuffer)
+        // 💀 GAME OVER → STOP (TAPI BUKAN KARENA NABRAK)
+        if (MissionManager.isGameOver)
         {
-            transform.position = frame.pos;
-            transform.rotation = frame.rot;
-            yield return new WaitForSecondsRealtime(replayFrameDelay); 
+            Debug.Log("STOP: GAME OVER (DRONE HABIS)");
+            return;
         }
 
-        rb.detectCollisions = true;
-        rb.useGravity = true;
-
-        isReplaying = false;
-        replayBuffer.Clear();
-        ShowNoImageFalse();
-        StartCoroutine(RespawnCoroutine());
+        // 🔁 MASIH ADA DRONE → REPLAY / RESPAWN
+        StartCoroutine(ExplosionThenReplay());
     }
+
+
+
+IEnumerator ExplosionThenReplay()
+{
+    PlayExplosion();
+
+    yield return null;
+    yield return null;
+    yield return null;
+    yield return null;
+
+    StartCoroutine(PlayReplayThenRespawn());
+}
+
+
+
+    IEnumerator PlayReplayThenRespawn()
+{
+    isReplaying = true;
+
+    // MATIKAN PHYSICS SETELAH PARTICLE AMAN
+    rb.isKinematic = true;
+    rb.detectCollisions = false;
+    rb.useGravity = false;
+
+    foreach (var frame in replayBuffer)
+    {
+        transform.position = frame.pos;
+        transform.rotation = frame.rot;
+        yield return new WaitForSeconds(replayFrameDelay); // ⬅️ BUKAN realtime
+    }
+
+    rb.detectCollisions = true;
+    rb.useGravity = true;
+
+    isReplaying = false;
+    replayBuffer.Clear();
+
+    ShowNoImageFalse();
+    StartCoroutine(RespawnCoroutine());
+}
+
+   void PlayExplosion()
+{
+    if (explosionPrefab == null) return;
+
+    GameObject go = Instantiate(
+        explosionPrefab,
+        transform.position,
+        Quaternion.identity
+    );
+
+    // Pastikan muncul di world
+    go.transform.rotation = Quaternion.identity;
+
+    ParticleSystem[] systems =
+        go.GetComponentsInChildren<ParticleSystem>(true);
+
+    float maxLife = 0f;
+
+    foreach (var ps in systems)
+    {
+        // WAJIB: pastikan tidak loop
+        var main = ps.main;
+        main.loop = false;
+
+        // HITUNG lifetime dengan BENAR
+        float duration = main.duration;
+
+        float lifetime =
+            main.startLifetime.mode == ParticleSystemCurveMode.TwoConstants
+                ? main.startLifetime.constantMax
+                : main.startLifetime.constant;
+
+        maxLife = Mathf.Max(maxLife, duration + lifetime);
+
+        // 🔥 PAKSA PLAY
+        ps.Clear(true);
+        ps.Play(true);
+    }
+
+    // BUFFER waktu biar pasti kelihatan
+    Destroy(go, maxLife + 0.2f);
+    Debug.Log($"Explosion spawned, life = {maxLife}");
+
+}
+
 
 
 }

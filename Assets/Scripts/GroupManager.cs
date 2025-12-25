@@ -4,6 +4,7 @@ using System.Collections;
 
 public class GroupManager : MonoBehaviour
 {
+    public GameVictoryScript gameVictoryScript;
     public CarGroup[] groups;
     public float delayAfterFinish = 2f;
 
@@ -35,12 +36,13 @@ public class GroupManager : MonoBehaviour
         yield return new WaitForSeconds(delayAfterFinish);
 
     
-        MissionManager.totalUsedDrones += DroneController.usedDrones;
-        MissionManager.totalDestroyedTargets += DroneController.destroyedTargets;
+        // MissionManager.totalUsedDrones += DroneController.usedDrones;
+        // MissionManager.totalDestroyedTargets += DroneController.destroyedTargets;
 
         if (MissionManager.IsLastMission())
         {
-            FindFirstObjectByType<GameVictoryScript>().ShowVictory();
+            gameVictoryScript.ShowVictory();
+            // FindFirstObjectByType<GameVictoryScript>().ShowVictory();
         }
         else
         {
