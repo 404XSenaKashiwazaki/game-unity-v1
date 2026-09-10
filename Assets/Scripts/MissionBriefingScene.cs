@@ -3,7 +3,7 @@ using UnityEngine.SceneManagement;
 using TMPro;
 using System.Collections;
 using System.Collections.Generic;
-
+using UnityEngine.UI;
 public class MissionBriefingSceneController : MonoBehaviour
 {
     public TextMeshProUGUI briefingText, objectText;
@@ -16,25 +16,33 @@ public class MissionBriefingSceneController : MonoBehaviour
 
     private bool isTyping = false;
     private bool canContinue = false;
+    public Button playButton;
+
+    [Header("After Briefing Control Screen")]
+public GameObject controlPanel;
+public GameObject briefingPanel;
+
 
     void Start()
     {
-        StartCoroutine(PlayBriefing());
-        MissionManager.ResetMissionState();
+    
+        controlPanel.SetActive(false);
+    briefingPanel.SetActive(true);
+    StartCoroutine(PlayBriefing());
     }
 
    IEnumerator PlayBriefing()
 {
-    isTyping = true;
+    StartTyping();
     canContinue = false;
     objectText.text = "";
 
     briefingText.text =
-        $"MISSION: {MissionManager.currentMission}\n\n\n" +
+        $"MISSION: {MissionManager.currentMission}/{MissionManager.totalMission}\n\n\n" +
         $"fpv used: {MissionManager.totalUsedDrones}/{MissionManager.totalDrones}\n\n" +
         $"neutralized: {MissionManager.totalDestroyedTargets}/{MissionManager.totalTargets}\n\n\n";
 
-    // 🔹 PARAGRAF (KATA ASLI, TIDAK DIUBAH)
+
     List<string> paragraphs = new List<string>();
 
     switch (MissionManager.currentMission)
@@ -73,33 +81,31 @@ paragraphs.Add("GILING MUSUH YANG MENCOBA MAJU SEPERTI BIASA");
             break;
     }
 
-    // 🔁 1 paragraf → hapus → lanjut
     foreach (string paragraph in paragraphs)
     {
         objectText.text = "";
 
-        // TYPEWRITER PER PARAGRAF
+
         foreach (char c in paragraph)
         {
             objectText.text += c;
             yield return new WaitForSeconds(typingSpeed);
         }
 
-        // TAHAN SEBENTAR BIAR TERBACA
         yield return new WaitForSeconds(1.1f);
 
-        // HAPUS LANGSUNG
+
         objectText.text = "";
         yield return new WaitForSeconds(0.15f);
     }
 
-    isTyping = false;
+    FinishTyping();
     canContinue = true;
 }
 
     void Update()
     {
-        if (canContinue && Input.GetKeyDown(KeyCode.Return))
+        if (canContinue && Input.GetKeyDown(KeyCode.Return) && !isTyping)
         {
             SceneManager.LoadScene(gameplaySceneName);
         }
@@ -107,7 +113,25 @@ paragraphs.Add("GILING MUSUH YANG MENCOBA MAJU SEPERTI BIASA");
 
     public void GamePlay()
     {
-        if (!isTyping)
-            SceneManager.LoadScene(gameplaySceneName);
+        SceneManager.LoadScene(gameplaySceneName); 
     }
+
+    public void StartTyping()
+    {
+        isTyping = true;
+        playButton.interactable = false;
+    }
+
+    public void FinishTyping()
+{
+    isTyping = false;
+    playButton.interactable = false;
+
+
+    briefingPanel.SetActive(false);
+    controlPanel.SetActive(true);
+}
+
+
+
 }

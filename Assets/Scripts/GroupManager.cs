@@ -15,7 +15,7 @@ public class GroupManager : MonoBehaviour
         // Safety
         if (index < 0 || index >= groups.Length)
         {
-            Debug.LogError("Mission index invalid!");
+            // Debug.LogError("Mission index invalid!");
             return;
         }
 
@@ -23,7 +23,7 @@ public class GroupManager : MonoBehaviour
         foreach (var g in groups)
             g.gameObject.SetActive(false);
 
-        // Aktifkan hanya grup sesuai mission
+      
         groups[index].gameObject.SetActive(true);
         groups[index].StartGroup();
 

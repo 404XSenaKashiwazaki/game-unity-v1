@@ -1,7 +1,8 @@
- using UnityEngine;
+using UnityEngine;
 using TMPro;
 using System.Collections;
 using System.Collections.Generic;
+using UnityEngine.InputSystem;
 
 
 [RequireComponent(typeof(Rigidbody))]
@@ -16,13 +17,17 @@ public class DroneController : MonoBehaviour
     public GameObject GameObjectOptionsPanel;
     public GameObject GameObjectPausedPanel;
 
-
-
+    // TIMER
+    public static float raceTimer = 0f;
+    private float bestTime = 0f;
+    bool raceStarted = false;
+    private bool victoryShown = false;
+    private Vector3 impactPosition;
     private Rigidbody rb;
     private Rigidbody[] cachedRBs;
 
     [Header("Settings")]
-    public float liftForce = 7f;
+    public float liftForce = 30f;
     public float forwardSpeed = 15f;
     public float strafeSpeed = 15f;
     public float yawSpeed = 80f;
@@ -40,12 +45,12 @@ public class DroneController : MonoBehaviour
     float pitchInput, rollInput, yawInput, throttle, forwardInput;
     float smoothRoll, smoothPitch;
 
-    bool isCrashed = false;
+    public bool isCrashed = false;
     public bool isGameOver = false;
-    bool isEngineOn = false;
+    public bool isEngineOn = false;
 
     [Header("OSD DISPLAY")]
-    public TextMeshProUGUI fpsText, leftTopText, leftText, topText, infoText,killText, usedDroneText;
+    public TextMeshProUGUI fpsText, leftTopText, leftText, topText, infoText,killText, usedDroneText,timerText;
 
     public float maxCurrent = 80f;
     public float batteryCapacity = 6000;
@@ -60,7 +65,8 @@ public class DroneController : MonoBehaviour
 
     public float hoverCurrentPercent = 0.35f;
     public float respawnDelay = 2f;
-
+    public float RollAngle => smoothRoll * maxTiltAngle;
+    public float PitchAngle => smoothPitch * maxTiltAngle;
     int battery = 100;
     int fpsRandom = 30;
 
@@ -79,12 +85,33 @@ public class DroneController : MonoBehaviour
     public static bool lastDroneExploded = false;
     public GameOverScript gameOverScript;
 
+    private AICarController lastHitCar;
 
     public static bool isReplaying = false;
+ //update kamera replay
+    [Header("Replay Cameras")]
+    public Camera mainCamera;
+    public Camera replayCamera;
 
-     //
+    [Header("OSD Drone")]
+    public GameObject GameObjectNOImage;
+    public GameObject GameObjectInfo;
+    public RectTransform gateMarker;
+    public TMP_Text gateDistanceText;
+
+    public static Transform targetGate;
+
+    private DroneControls controls;
+
+    private Vector2 moveInput;
+    private Vector2 lookInput;
+
+    public float throttleValue = 0.5f;
+    public float throttleSpeed = 4f; 
+    private bool throttleActivated = false;
+
     
-     struct ReplayFrame
+    struct ReplayFrame
     {
         public Vector3 pos;
         public Quaternion rot;
@@ -97,11 +124,91 @@ public class DroneController : MonoBehaviour
     [Header("Partikel")]
     private ParticleSystem explosionPS;
 
+    void Awake()
+    {
+        controls = new DroneControls();
+        ShowInfoOsdPanelTrue();
+        ShowNoImageTrue();
+    }
+
+    void OnEnable()
+    {
+        controls.Enable();
+    }
+
+    void OnDisable()
+    {
+        controls.Disable();
+    }
+
+
+    string FormatTime(float time)
+    {
+        if (time <= 0f)
+            return "--:--.--";
+
+        int minutes = Mathf.FloorToInt(time / 60);
+        int seconds = Mathf.FloorToInt(time % 60);
+        int centiseconds = Mathf.FloorToInt((time - Mathf.Floor(time)) * 100);
+
+        return $"{minutes:00}:{seconds:00}.{centiseconds:00}";
+    }
+
+    public void ArmDrone()
+    {
+        if (isEngineOn)
+            return;
+
+        isEngineOn = true;
+        rb.isKinematic = false;
+        ShowNoImageFalse();
+
+        if (Level.CurrentLevel == 2)
+            raceStarted = true;
+
+        gateMarker.gameObject.SetActive(true);
+        gateDistanceText.gameObject.SetActive(true);
+    }
+
+    public void RespawnDrone ()
+    {
+        onRespawn();
+    }
+
+    public void OptionsDrone ()
+    {
+        GameObjectInfo.SetActive(false);
+        GameObjectNOImage.SetActive(false);
+        GameObjectPausedPanel.SetActive(false);
+        GameObjectOptionsPanel.SetActive(true);
+    }
+
+    public void PauseDrone()
+    {
+        GameObjectInfo.SetActive(false);
+        GameObjectNOImage.SetActive(false);
+        GameObjectOptionsPanel.SetActive(false);
+        GameObjectPausedPanel.SetActive(true);
+    }
+
+    void ResetOsd ()
+    {
+        if (infoText != null)
+            infoText.text =
+                $"100 %\n0 mAh\n0 A\n" +
+                $"roll:- \npitch:- \nSN: 85937947";
+    }
 
     void Start()
     {
+        
+        //update kamera replay
+        if (replayCamera != null)
+        replayCamera.enabled = false;
+        //update kamera replay
+
         rb = GetComponent<Rigidbody>();
-        cachedRBs = FindObjectsByType<Rigidbody>(FindObjectsSortMode.None);
+        cachedRBs = FindObjectsByType<Rigidbody>();
 
         currentYaw = transform.eulerAngles.y;
 
@@ -113,14 +220,17 @@ public class DroneController : MonoBehaviour
 
         rb.angularDamping = 0.4f;
         rb.linearDamping = 0.4f;
+        // best time 
+        bestTime = PlayerPrefs.GetFloat("BestTimeLevel2", 0f);
         
         // ShowNoImageTrue();        // "Press Enter"
+        gateMarker.gameObject.SetActive(false);
+        gateDistanceText.gameObject.SetActive(false);
     }
-
 
     void Update()
     {
-
+        UpdatePropellers();
         if (isReplaying) return;
         timer += Time.deltaTime;
         timerBattery += Time.deltaTime;
@@ -131,64 +241,96 @@ public class DroneController : MonoBehaviour
             timer = 0f;
         }
 
-        if (battery > 0 && timerBattery >= 4f && isEngineOn)
+        if (battery > 0 && timerBattery >= 15f && isEngineOn)
         {
             battery--;
             timerBattery = 0f;
         }
         if(battery == 0 && MissionManager.totalUsedDrones <= MissionManager.totalDrones) { if (respawn != null) { setRespawn();} }
-       
-        if (Input.GetKeyDown(KeyCode.Escape)) 
-            if (GameObjectPausedPanel != null) GameObjectPausedPanel.SetActive(true);
 
-        if (Input.GetKeyDown(KeyCode.Tab))
-        {
-            if (GameObjectOptionsPanel != null) GameObjectOptionsPanel.SetActive(true);
+        if (controls.Drone.Arm.WasPressedThisFrame()) ArmDrone();
+        if (controls.Drone.Respawn.WasPressedThisFrame()) onRespawn();
+        if (controls.Drone.Pause.WasPressedThisFrame() ) PauseDrone();
+        if (controls.Drone.Options.WasPressedThisFrame()) OptionsDrone();
+
+        // timer osd
+        if (Level.CurrentLevel == 2 &&
+            raceStarted &&
+            !MissionManager.isMissionComplete &&
+            !MissionManager.isGameOver)
             
+        {
+            raceTimer += Time.deltaTime;
         }
             
-        if (Input.GetKeyDown(KeyCode.Return) && !isEngineOn)
+        if (controls.Drone.Arm.WasPressedThisFrame() && !isEngineOn)
         {
             isEngineOn = true;
             rb.isKinematic = false;
             ShowNoImageFalse();
+
+            if (Level.CurrentLevel == 2)
+                raceStarted = true;
+
+            gateMarker.gameObject.SetActive(true);
+            gateDistanceText.gameObject.SetActive(true);
         }
- 
+
+        //victory 
+
+        if (MissionManager.isMissionComplete && !victoryShown)
+        {
+            victoryShown = true;
+
+            GameVictoryScript victory = FindAnyObjectByType<GameVictoryScript>();
+
+            if (victory != null)
+                victory.ShowVictory();
+        }
     }
 
     void FixedUpdate()
     {
         if (isCrashed || !isEngineOn || isReplaying) return;
 
-        throttle = 0f;
-        if (Input.GetKey(KeyCode.Space))
+        moveInput = controls.Drone.Move.ReadValue<Vector2>();
+        lookInput = controls.Drone.Look.ReadValue<Vector2>();
+
+        throttle = moveInput.y;
+        yawInput = moveInput.x;
+
+        pitchInput = lookInput.y;
+        rollInput = lookInput.x;
+
+        if (Mathf.Abs(throttle) > 0.01f)
         {
-            throttle += 3f;
             rb.isKinematic = false;
             ShowNoImageFalse();
         }
-        if (Input.GetKey(KeyCode.LeftControl)) throttle -= 3f;
+        smoothRoll = Mathf.Lerp(
+            smoothRoll,
+            rollInput,
+            Time.fixedDeltaTime * rollDamping);
 
-        pitchInput = (Input.GetKey(KeyCode.UpArrow) ? 1 : 0) -
-                     (Input.GetKey(KeyCode.DownArrow) ? 1 : 0);
+        smoothPitch = Mathf.Lerp(
+            smoothPitch,
+            pitchInput,
+            Time.fixedDeltaTime * rollDamping);
+        
+        // float hover = rb.mass * Physics.gravity.magnitude;
+        // float thrust = hover + liftForce * throttle;
 
-        rollInput = (Input.GetKey(KeyCode.D) ? 1 : 0) -
-                    (Input.GetKey(KeyCode.A) ? 1 : 0);
+        // rb.AddForce(transform.up * thrust, ForceMode.Force);
+        if (throttle > 0.01f)
+            throttleActivated = true;
 
-        yawInput = (Input.GetKey(KeyCode.RightArrow) ? 1 : 0) -
-                   (Input.GetKey(KeyCode.LeftArrow) ? 1 : 0);
+        if (throttleActivated)
+        {
+            float hover = rb.mass * Physics.gravity.magnitude;
+            float thrust = hover + liftForce * throttle;
+            rb.AddForce(transform.up * thrust, ForceMode.Force);
+        }
 
-        forwardInput = (Input.GetKey(KeyCode.W) ? 1 : 0) -
-                       (Input.GetKey(KeyCode.S) ? 1 : 0);
-
-        smoothRoll = Mathf.Lerp(smoothRoll, rollInput, Time.fixedDeltaTime * 6f);
-        smoothPitch = Mathf.Lerp(smoothPitch, pitchInput, Time.fixedDeltaTime * 6f);
-
-        float hover = rb.mass * Physics.gravity.magnitude;
-        float upright = Mathf.Clamp01(Vector3.Dot(transform.up, Vector3.up));
-        float effectiveLift = (hover + liftForce * throttle) / Mathf.Max(0.5f, upright);
-
-        rb.AddForce(Vector3.up * effectiveLift, ForceMode.Force);
 
         float wantedPitch = smoothPitch * maxTiltAngle;
         float wantedRoll = smoothRoll * maxTiltAngle;
@@ -204,26 +346,35 @@ public class DroneController : MonoBehaviour
 
         currentYaw += yawInput * yawSpeed * Time.fixedDeltaTime;
 
+
         Quaternion yawRot = Quaternion.Euler(0f, currentYaw, 0f);
         Quaternion tilt = Quaternion.Euler(targetPitch, 0f, -targetRoll);
 
-        transform.rotation = Quaternion.Slerp(transform.rotation, yawRot * tilt, Time.fixedDeltaTime * 8f);
+        // transform.rotation = Quaternion.Slerp(transform.rotation, yawRot * tilt, Time.fixedDeltaTime * 8f);
+        Quaternion targetRotation = Quaternion.Slerp(
+        rb.rotation,
+        yawRot * tilt,
+        Time.fixedDeltaTime * 8f);
 
-        rb.AddForce(transform.forward * forwardSpeed * smoothPitch, ForceMode.Force);
-        rb.AddForce(transform.forward * forwardSpeed * forwardInput, ForceMode.Force);
-        rb.AddForce(transform.right * strafeSpeed * smoothRoll, ForceMode.Force);
+        rb.MoveRotation(targetRotation);
+        rb.AddForce(
+            transform.right * strafeSpeed * smoothRoll,
+            ForceMode.Force);
 
-        SpinProp(propFL, false);
-        SpinProp(propFR, true);
-        SpinProp(propBL, true);
-        SpinProp(propBR, false);
+        rb.AddForce(
+            transform.forward * forwardSpeed * smoothPitch,
+            ForceMode.Force);
 
-        // current draw sim
+        if (Mathf.Abs(pitchInput) < 0.05f)
+        {
+            Vector3 forwardVel = Vector3.Project(rb.linearVelocity, transform.forward);
+            rb.AddForce(-forwardVel * 3f, ForceMode.Acceleration);
+        }
+
         float controlLoad =
-            Mathf.Abs(smoothRoll) +
-            Mathf.Abs(smoothPitch) +
-            Mathf.Abs(forwardInput) +
-            Mathf.Clamp01(Mathf.Abs(throttle));
+        Mathf.Abs(smoothRoll) +
+        Mathf.Abs(smoothPitch) +
+        Mathf.Clamp01(Mathf.Abs(throttle));
 
         controlLoad = Mathf.Clamp01(controlLoad);
 
@@ -262,8 +413,37 @@ public class DroneController : MonoBehaviour
 
     }
 
+    public float GetRoll()
+    {
+        return targetRoll;
+    }
+
+    public float GetPitch()
+    {
+        return targetPitch;
+    }
+
     void LateUpdate()
     {
+        if(!isEngineOn)
+        {
+            gateMarker.gameObject.SetActive(false);
+            gateDistanceText.gameObject.SetActive(false);
+            return;
+        }
+
+
+        // timmer osd
+       if (timerText != null && Level.CurrentLevel == 2)
+        {
+             string best =
+                bestTime > 0 ? bestTime.ToString("F2") + "s" : "--";
+
+            timerText.text =
+                $"TIME: {FormatTime(raceTimer)}s\nBEST TIME: {FormatTime(bestTime)}";
+        }
+       
+
         if (topText != null)
             topText.text = $"{batteryVoltage:F1} V {cellVoltage:F2} V";
 
@@ -289,10 +469,53 @@ public class DroneController : MonoBehaviour
         int usedDrone = MissionManager.totalUsedDrones;
         int totalDrone = MissionManager.totalDrones;
 
-        int neutralizedTarget = MissionManager.totalDestroyedTargets;
-        int totalTarget =  MissionManager.totalTargets; 
-        if (killText != null) killText.text = $"neutralized: {neutralizedTarget}/{totalTarget}";
-        if (usedDroneText != null) usedDroneText.text = $"FPV used: {usedDrone}/{totalDrone}";
+        int currenGates = MissionManager.CurrentGates;
+        int totalGates =  MissionManager.TotalGates; 
+        if (killText != null) killText.text = $"checkpoint: {currenGates}/{totalGates}";
+        if (usedDroneText != null) usedDroneText.text = $"CRASHES: {usedDrone}/{totalDrone} | Level: {Level.CurrentLevel}";
+
+        if (targetGate != null &&
+        gateMarker != null &&
+        gateDistanceText != null &&
+        Camera.main != null)
+        {
+    
+            Transform markerPoint =
+                targetGate.Find("MarkerPoint");
+            Vector3 targetPos =
+                markerPoint != null
+                ? markerPoint.position
+                : targetGate.position;
+
+            Vector3 screenPos =
+                Camera.main.WorldToScreenPoint(
+                    targetPos);
+            if(screenPos.z > 0)
+            {
+                gateMarker.gameObject.SetActive(true);
+                gateMarker.position = screenPos;
+
+                float distances =
+                    Vector3.Distance(
+                        transform.position,
+                        targetPos);
+
+                float scale = Mathf.Clamp(distances / 30f, 1f, 2f);
+
+                gateMarker.localScale =
+                    Vector3.one * scale;
+            }
+            else
+            {
+                gateMarker.gameObject.SetActive(false);
+            }
+            float distance =
+                Vector3.Distance(
+                    transform.position,
+                    targetPos);
+            gateDistanceText.text =
+                distance.ToString("F0") + "m";
+        }
     }
 
     float NormalizeAngle(float angle)
@@ -307,49 +530,58 @@ public class DroneController : MonoBehaviour
         prop.Rotate(Vector3.forward, propSpinSpeed * Time.fixedDeltaTime * (reverse ? -1 : 1));
     }
 
-    private void OnCollisionEnter(Collision other)
-    {
-       if (isReplaying) return;
-    if (isCrashed) return;
-    if (other.gameObject.CompareTag("Respawn") || other.gameObject.CompareTag("MapBoundaries")) return;
-
-    MissionManager.SetUsedDrone();
-
-    if (other.gameObject.CompareTag("Enemy"))
-        MissionManager.SetDestroyedTarget();
-
-
-  
-    StartCoroutine(CrashDelayThenKamikaze(other));
-    }
-
-    IEnumerator CrashDelayThenKamikaze(Collision other)
+   private void OnTriggerEnter(Collider other)
 {
-    if (isCrashed) yield break;
+    if (!other.CompareTag("Gates"))
+        return;
 
-    isCrashed = true;
-    isEngineOn = false;
+    if (other.transform != DroneController.targetGate)
+        return;
 
-    // ✅ HENTIKAN VELOCITY SAAT MASIH NON-KINEMATIC
-    rb.linearVelocity = Vector3.zero;
-    rb.angularVelocity = Vector3.zero;
+    AudioManager.Instance.PlayGatePassed();
 
-    // baru jadikan kinematic
-    rb.isKinematic = true;
+    MissionManager.SetGatePassed();
 
-    ShowNoImageTrue();
+    Transform parent = other.transform.parent;
 
-    yield return new WaitForSeconds(2f);
-    MissionManager.CheckMissionState(other);
+    int index = other.transform.GetSiblingIndex();
 
-    HandleKamikazeImpact(other);
+    if (index + 1 < parent.childCount)
+        DroneController.targetGate = parent.GetChild(index + 1);
+
+    other.gameObject.SetActive(false);
 }
 
 
+    private void OnCollisionEnter(Collision other)
+    {
+        if (isReplaying) return;
+        if (isCrashed) return;
+        if (other.gameObject.CompareTag("Respawn") || other.gameObject.CompareTag("MapBoundaries")) return;
+
+
+        MissionManager.SetUsedDrone();
+        isEngineOn = false;
+        impactPosition = transform.position;
+        StartCoroutine(CrashDelayThenKamikaze(other));
+    }
+
+    IEnumerator CrashDelayThenKamikaze(Collision other)
+    {
+        if (isCrashed) yield break;
+        isCrashed = true;
+
+        rb.linearVelocity = Vector3.zero;
+        rb.angularVelocity = Vector3.zero;
+        rb.isKinematic = true;
+        ShowNoImageTrue();
+        yield return new WaitForSeconds(1f);
+        MissionManager.CheckMissionState(other);
+        HandleKamikazeImpact(other);
+    }
 
     public void setRespawn()
     {
-         
         usedmAh = 0f;
         altitude = 0f;
         isCrashed = true;
@@ -358,166 +590,212 @@ public class DroneController : MonoBehaviour
         rb.linearVelocity = Vector3.zero;
         rb.angularVelocity = Vector3.zero;
         rb.isKinematic = true;  
-        ShowNoImageTrue();
+        // ShowNoImageTrue();
         StartCoroutine(RespawnCoroutine());
     }
 
-
-   private IEnumerator RespawnCoroutine()
-{
-    // ⛔ JANGAN CEK GAME OVER DI SINI
-    // ⛔ JANGAN PAKAI isLastDrone DI SINI
-
-    yield return new WaitForSeconds(respawnDelay);
-
-    if (respawn != null)
-        onRespawn();
-
-    rb.isKinematic = true;
-    isCrashed = false;
-    isEngineOn = false;
-
-    ShowNoImageTrue(); // "Press Enter"
-}
-
-
-
-   private void onRespawn()
+    private IEnumerator RespawnCoroutine()
     {
+        yield return new WaitForSeconds(respawnDelay);
+        if (respawn != null)
+            onRespawn();
+        rb.isKinematic = true;
+        isCrashed = false;
+        isEngineOn = false;
+        gateMarker.gameObject.SetActive(false);
+        gateDistanceText.gameObject.SetActive(false);
+          //update kamera replay
+        SwitchToMainCamera(); // replay kamera
+         //update kamera replay
+        ShowInfoOsdPanelTrue();
+        ShowNoImageTrue(); // "Press Enter"
+        ResetOsd();
+    }
+
+    private void onRespawn()
+    {
+        ShowDrone();
         usedmAh = 0;
         battery = 100;
 
         rb.isKinematic = true; 
+        if(Level2Manager.CurrentSpawnMarker != null)
+            {
+                transform.position = Level2Manager.CurrentSpawnMarker.position;
 
-        transform.position = respawn.transform.position;
-        transform.rotation = Quaternion.Euler(-1.382f, 92.066f, -0.281f);
-        rb.rotation = transform.rotation;
+                transform.rotation =
+                Level2Manager.CurrentSpawnMarker.rotation *
+                Quaternion.Euler(0, 90, 0);
 
-        currentYaw = 92.066f;
+                rb.rotation = transform.rotation;
+
+                currentYaw = transform.eulerAngles.y;
+            }
 
         targetPitch = 0;
         targetRoll = 0;
         smoothPitch = 0;
         smoothRoll = 0;
-
-    
+        replayBuffer.Clear();
     }
-    private void ShowNoImageTrue() {
-        canvasNoImage.SetActive(true);
-
-    }
-    private void ShowNoImageFalse() => canvasNoImage.SetActive(false);
+    public void ShowNoImageTrue() => canvasNoImage.SetActive(true);
+    public void ShowNoImageFalse() => canvasNoImage.SetActive(false);
+    private void ShowInfoOsdPanelTrue () => GameObjectInfo.SetActive(true);
+    private void ShowInfoOsdPanelFalse () => GameObjectInfo.SetActive(false);
 
     void HandleKamikazeImpact(Collision other)
     {
-        // ledakan selalu tampil
-        PlayExplosion();
-
-        // 🏆 MENANG → STOP
-        if (MissionManager.isMissionComplete)
-        {
-            Debug.Log("STOP: MISSION COMPLETE");
-            return;
-        }
-
-        // 💀 GAME OVER → STOP (TAPI BUKAN KARENA NABRAK)
-        if (MissionManager.isGameOver)
-        {
-            Debug.Log("STOP: GAME OVER (DRONE HABIS)");
-            return;
-        }
-
-        // 🔁 MASIH ADA DRONE → REPLAY / RESPAWN
+        isEngineOn = true;
         StartCoroutine(ExplosionThenReplay());
     }
 
-
-
-IEnumerator ExplosionThenReplay()
-{
-    PlayExplosion();
-
-    yield return null;
-    yield return null;
-    yield return null;
-    yield return null;
-
-    StartCoroutine(PlayReplayThenRespawn());
-}
-
-
+    IEnumerator ExplosionThenReplay()
+    {
+        yield return new WaitForSeconds(0.3f);
+         //update kamera replay
+        ShowInfoOsdPanelFalse();
+        ShowNoImageFalse();
+        SwitchToReplayCamera(); //replay kamera
+         //update kamera replay
+        StartCoroutine(PlayReplayThenRespawn());
+    }
 
     IEnumerator PlayReplayThenRespawn()
-{
-    isReplaying = true;
-
-    // MATIKAN PHYSICS SETELAH PARTICLE AMAN
-    rb.isKinematic = true;
-    rb.detectCollisions = false;
-    rb.useGravity = false;
-
-    foreach (var frame in replayBuffer)
     {
-        transform.position = frame.pos;
-        transform.rotation = frame.rot;
-        yield return new WaitForSeconds(replayFrameDelay); // ⬅️ BUKAN realtime
+        isReplaying = true;
+        rb.isKinematic = true;
+        rb.detectCollisions = false;
+        rb.useGravity = false;
+
+         List<ReplayFrame> replayFrames = GetReplayFramesBeforeImpact(10f); // 4 meter
+        foreach (var frame in replayFrames)
+        {
+            transform.position = frame.pos;
+            transform.rotation = frame.rot;
+            yield return new WaitForSeconds(replayFrameDelay);
+        }
+        HideDrone();
+        PlayExplosion();
+        yield return new WaitForSeconds(1.5f);
+        rb.detectCollisions = true;
+        rb.useGravity = true;
+
+        isReplaying = false;
+        if (lastHitCar != null)
+        {
+            // lastHitCar.TriggerExplosion();
+            lastHitCar.PlayReplayDestruction();
+            lastHitCar = null;
+        }
+        replayBuffer.Clear();
+        if (MissionManager.isGameOver)
+        {
+            GameOverScript over = FindAnyObjectByType<GameOverScript>();
+            if (over != null)
+                over.ShowGameOver();
+
+            yield break;
+        }
+
+        // ShowNoImageFalse();
+        StartCoroutine(RespawnCoroutine());
     }
 
-    rb.detectCollisions = true;
-    rb.useGravity = true;
-
-    isReplaying = false;
-    replayBuffer.Clear();
-
-    ShowNoImageFalse();
-    StartCoroutine(RespawnCoroutine());
-}
-
-   void PlayExplosion()
-{
-    if (explosionPrefab == null) return;
-
-    GameObject go = Instantiate(
-        explosionPrefab,
-        transform.position,
-        Quaternion.identity
-    );
-
-    // Pastikan muncul di world
-    go.transform.rotation = Quaternion.identity;
-
-    ParticleSystem[] systems =
-        go.GetComponentsInChildren<ParticleSystem>(true);
-
-    float maxLife = 0f;
-
-    foreach (var ps in systems)
+    void PlayExplosion()
     {
-        // WAJIB: pastikan tidak loop
-        var main = ps.main;
-        main.loop = false;
+        if (explosionPrefab == null) return;
+        GameObject go = Instantiate(
+            explosionPrefab,
+            transform.position,
+            Quaternion.identity
+        );
+        go.transform.rotation = Quaternion.identity;
+        ParticleSystem[] systems =
+            go.GetComponentsInChildren<ParticleSystem>(true);
 
-        // HITUNG lifetime dengan BENAR
-        float duration = main.duration;
+        float maxLife = 0f;
+        foreach (var ps in systems)
+        {
+            var main = ps.main;
+            main.loop = false;
 
-        float lifetime =
-            main.startLifetime.mode == ParticleSystemCurveMode.TwoConstants
-                ? main.startLifetime.constantMax
-                : main.startLifetime.constant;
+            float duration = main.duration;
 
-        maxLife = Mathf.Max(maxLife, duration + lifetime);
+            float lifetime =
+                main.startLifetime.mode == ParticleSystemCurveMode.TwoConstants
+                    ? main.startLifetime.constantMax
+                    : main.startLifetime.constant;
 
-        // 🔥 PAKSA PLAY
-        ps.Clear(true);
-        ps.Play(true);
+            maxLife = Mathf.Max(maxLife, duration + lifetime);
+            ps.Clear(true);
+            ps.Play(true);
+        }
+        Destroy(go, maxLife + 0.2f);
     }
 
-    // BUFFER waktu biar pasti kelihatan
-    Destroy(go, maxLife + 0.2f);
-    Debug.Log($"Explosion spawned, life = {maxLife}");
+ //update kamera replay
+//replay switch
+    void SwitchToReplayCamera()
+    {
+        if (mainCamera != null) mainCamera.enabled = false;
+        if (replayCamera != null) replayCamera.enabled = true;
+    }
+
+    void SwitchToMainCamera()
+    {
+        if (replayCamera != null) replayCamera.enabled = false;
+        if (mainCamera != null) mainCamera.enabled = true;
+    }
+ //update kamera replay
+
+    void UpdatePropellers()
+    {
+        SpinProp(propFL, false);
+        SpinProp(propFR, true);
+        SpinProp(propBL, true);
+        SpinProp(propBR, false);
+    }
+
+    List<ReplayFrame> GetReplayFramesBeforeImpact(float distance)
+    {
+        List<ReplayFrame> result = new List<ReplayFrame>();
+
+        float traveled = 0f;
+        Vector3 lastPos = impactPosition;
+
+        for (int i = replayBuffer.Count - 1; i >= 0; i--)
+        {
+            ReplayFrame frame = replayBuffer[i];
+            traveled += Vector3.Distance(lastPos, frame.pos);
+            lastPos = frame.pos;
+
+            result.Add(frame);
+
+            if (traveled >= distance)
+                break;
+        }
+
+        result.Reverse(); 
+        return result;
+    }
+
+    public void HideDrone()
+    {
+        foreach (var r in GetComponentsInChildren<Renderer>())
+            r.enabled = false;
+
+        foreach (var c in GetComponentsInChildren<Collider>())
+            c.enabled = false;
+    }
+
+    void ShowDrone()
+    {
+        foreach (var r in GetComponentsInChildren<Renderer>())
+            r.enabled = true;
+
+        foreach (var c in GetComponentsInChildren<Collider>())
+            c.enabled = true;
+    }
 
 }
 
-
-
-}

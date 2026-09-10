@@ -35,7 +35,7 @@ public class LimitScript : MonoBehaviour
     {
         MissionManager.isGameOver = true;
         gameOverScript.ShowGameOver();
-        Debug.Log("IT'S ZOVER");
+        // Debug.Log("IT'S ZOVER");
     }
 }
 

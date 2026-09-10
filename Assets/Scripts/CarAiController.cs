@@ -32,41 +32,36 @@ public class AICarController : MonoBehaviour
     }
 
     [Header("Avoidance")]
-    public float followDistance = 7f;
+    public float followDistance = 9f;          // ⬅️ JARAK LEBIH JAUH
     public float avoidTurnSpeed = 120f;
-    public float slowDownMultiplier = 0.7f;
+    public float slowDownMultiplier = 0.6f;    // ⬅️ LEBIH AMAN
 
- 
     private GameVictoryScript victory;
 
     [Header("Wheels")]
-    public Transform[] wheels;        // drag semua ban ke sini
+    public Transform[] wheels;
     public float wheelRotateSpeed = 360f;
     public static Vector3 lastImpactPosition;
     public static Quaternion lastImpactRotation;
 
+    
+
     void Awake()
     {
         rb = GetComponent<Rigidbody>();
-
-        
         victory = Object.FindFirstObjectByType<GameVictoryScript>();
+        
     }
 
     void Explode()
     {
-        Debug.Log("EXPLODE DIPANGGIL");
-        if (explosionPrefab == null)
-    {
-        Debug.LogError("Explosion prefab BELUM di-assign!");
-        return;
-    }
+        if (explosionPrefab == null) return;
 
-    GameObject exp = Instantiate(
-        explosionPrefab,
-        transform.position + Vector3.up * 0.5f, // sedikit naik
-        Quaternion.identity
-    );
+        Instantiate(
+            explosionPrefab,
+            transform.position + Vector3.up * 0.5f,
+            Quaternion.identity
+        );
     }
 
     void Start()
@@ -74,37 +69,47 @@ public class AICarController : MonoBehaviour
         rb.centerOfMass = new Vector3(0, -0.5f, 0);
         rb.collisionDetectionMode = CollisionDetectionMode.ContinuousDynamic;
         rb.interpolation = RigidbodyInterpolation.Interpolate;
-        rb.constraints = RigidbodyConstraints.FreezeRotationX |
-                         RigidbodyConstraints.FreezeRotationZ;
+        rb.constraints =
+            RigidbodyConstraints.FreezeRotationX |
+            RigidbodyConstraints.FreezeRotationZ;
     }
 
     void FixedUpdate()
     {
         if (state != CarState.Moving)
         {
-            RotateWheels(); 
+            RotateWheels();
             return;
         }
-        
 
         Vector3 rayOrigin = transform.position + Vector3.up * 0.5f;
-
-        if (Physics.SphereCast(rayOrigin, 1.2f, transform.forward,
+        if (Physics.SphereCast(rayOrigin, 1.5f, transform.forward,
             out RaycastHit hit, followDistance))
         {
-            AICarController frontCar = hit.collider.GetComponent<AICarController>();
+            AICarController frontCar =
+                hit.collider.GetComponent<AICarController>();
 
             if (frontCar != null && frontCar.state == CarState.Stopped)
             {
-                rb.linearVelocity = transform.forward * (speed * slowDownMultiplier);
+                float dist = hit.distance;
 
-                rb.MoveRotation(
-                    Quaternion.Euler(
-                        0,
-                        rb.rotation.eulerAngles.y + avoidTurnSpeed * Time.fixedDeltaTime,
-                        0
-                    )
+ 
+                if (dist < 3.0f)
+                {
+                    rb.linearVelocity = Vector3.zero;
+                    RotateWheels();
+                    return;
+                }
+                Vector3 moveDir =
+                    (transform.forward * 0.25f + transform.right).normalized;
+
+                float speedFactor = Mathf.Lerp(
+                    slowDownMultiplier,
+                    0.35f,
+                    Mathf.InverseLerp(followDistance, 3.0f, dist)
                 );
+
+                rb.linearVelocity = moveDir * (speed * speedFactor);
                 RotateWheels();
                 return;
             }
@@ -126,8 +131,11 @@ public class AICarController : MonoBehaviour
         if (distance < 0.1f) return;
 
         Vector3 dir = toTarget.normalized;
-        float angle = Vector3.SignedAngle(transform.forward, dir, Vector3.up);
-        float turnAmount = Mathf.Clamp(angle, -45f, 45f);
+        float angle =
+            Vector3.SignedAngle(transform.forward, dir, Vector3.up);
+
+        float turnAmount =
+            Mathf.Clamp(angle, -45f, 45f);
 
         rb.MoveRotation(
             Quaternion.Euler(
@@ -160,7 +168,6 @@ public class AICarController : MonoBehaviour
             return;
 
         StopCar();
-          PlayFire();
     }
 
     public void StartMove()
@@ -178,70 +185,67 @@ public class AICarController : MonoBehaviour
             return;
 
         state = CarState.Stopped;
-        Explode();
+
+        // if (!DroneController.isReplaying)
+        // {
+        //     Explode();
+        //     PlayFire();
+        // }
+
         rb.linearVelocity = Vector3.zero;
         rb.angularVelocity = Vector3.zero;
         rb.isKinematic = true;
-
-      
-        // if (victory != null)
-        //     victory.OnCarDestroyed();
     }
 
     public bool IsFinished()
     {
-        return state == CarState.Stopped || state == CarState.Destroyed;
+        return state == CarState.Stopped ||
+               state == CarState.Destroyed;
     }
 
-void PlayFire()
-{
-   
-    if (firePrefab == null || DroneController.isReplaying) return;
-
-    if (fireInstance == null)
+    void PlayFire()
     {
-        fireInstance = Instantiate(
-            firePrefab,
-            transform.position,
-            Quaternion.identity
-        );
-
-    
-        fireParticles = fireInstance.GetComponentsInChildren<ParticleSystem>();
-
-        if (fireParticles.Length == 0)
-        {
-            Debug.LogError("Fire prefab TIDAK punya ParticleSystem!");
-            Destroy(fireInstance);
+        if (firePrefab == null || DroneController.isReplaying)
             return;
-        }
 
-        float maxLifetime = 60f;
+        if (fireInstance == null)
+        {
+            fireInstance = Instantiate(
+                firePrefab,
+                transform.position,
+                Quaternion.identity
+            );
+
+            fireParticles =
+                fireInstance.GetComponentsInChildren<ParticleSystem>();
+
+            if (fireParticles.Length == 0)
+            {
+                Destroy(fireInstance);
+                return;
+            }
+
+            float maxLifetime = 60f;
+
+            foreach (var ps in fireParticles)
+            {
+                var main = ps.main;
+                main.loop = false;
+
+                float lifetime =
+                    main.duration +
+                    main.startLifetime.constantMax;
+
+                if (lifetime > maxLifetime)
+                    maxLifetime = lifetime;
+            }
+
+            Destroy(fireInstance, maxLifetime);
+        }
 
         foreach (var ps in fireParticles)
-        {
-            var main = ps.main;
-            main.loop = false;
-
-            float lifetime =
-                main.duration +
-                main.startLifetime.constantMax;
-
-            if (lifetime > maxLifetime)
-                maxLifetime = lifetime;
-        }
-
-
-        Destroy(fireInstance, maxLifetime);
+            ps.Play();
     }
-
- 
-    foreach (var ps in fireParticles)
-        ps.Play();
-}
-
-
-
 
     void RotateWheels()
     {
@@ -253,13 +257,31 @@ void PlayFire()
         {
             if (wheel == null) continue;
 
- 
             wheel.Rotate(
                 Vector3.right,
                 currentSpeed * wheelRotateSpeed * Time.fixedDeltaTime,
                 Space.Self
             );
         }
+    }
+
+    public void TriggerExplosion()
+    {
+        if (state == CarState.Destroyed)
+            return;
+
+        StopCar();
+    }
+
+    public void PlayReplayDestruction()
+    {
+        if (state == CarState.Destroyed)
+            return;
+
+        state = CarState.Destroyed;
+
+        Explode();
+        PlayFire();
     }
 
 }
